@@ -29,92 +29,24 @@ import "../styles/App.css";
 
 extend({ OrbitControls})
 
-const numberOfPlanets = data.planets.length;
+const table2a = data.table2a;
+const table2b = data.table2b;
 
-const xInitialArray = data.planets.map(planet => planet.x);
-const vInitialArray = data.planets.map(planet => planet.v);
-const masses = data.planets.map(planet => planet.m);
+const numberOfPlanets = table2a.planets.length;
 
-const xInitial = tf.tensor2d(xInitialArray, [numberOfPlanets, 3]);
-const vInitial = tf.tensor2d(vInitialArray, [numberOfPlanets, 3]);
-const G = tf.scalar(data.G);
+const j2000 = new Date(Date.UTC(2000, 0, 2, 0, 0, 0));
 
-const trajSize = 10000;
-const initialTraj = xInitialArray.map(x => Array(trajSize).fill(x));
+function SolarSystem() {
+  
+  const {camera, gl} = useThree();
 
-function SolarSystem({ dt = .1 }) {
-  const [pos, setPos] = useState(xInitialArray);
-  const [traj, setTraj] = useState(initialTraj);
-  const x = useRef(xInitial);
-  const v = useRef(vInitial);
-  const nTimeStpes = useRef(0);
-  const dtTensor = useMemo(() => tf.scalar(dt), [dt]);
-  const compute = useCallback(() => {
-    const [newX, newV] = tf.tidy(() => {
-      const a = calcA(x.current);
-      const newX = x.current.add(tf.mul(v.current, dtTensor));
-      const newV = v.current.add(tf.mul(a, dtTensor));
+  console.log(j2000);
 
-      return [newX, newV];
-    });
-
-    tf.dispose([x.current, v.current]);
-    x.current = newX;
-    v.current = newV;
-
-    newX.array().then(newPos => {
-      setPos(newPos);
-      if (nTimeStpes.current++ % 5 === 0) {
-        setTraj(traj =>
-          traj.map((points, i) =>
-            points.slice(-trajSize + 1).concat([newPos[i]])
-          )
-        );
-      }
-    });
-  }, [x, v, dtTensor]);
-
-  useEffect(() => {
-    requestAnimationFrame(() => {
-      compute();
-    });
-  }, [pos, compute]);
-
-  const handleUpdateGeometry = useCallback(self => {
-    self.verticesNeedUpdate = true;
-  }, []);
-  const { camera, gl } = useThree();
   return (
     <group>
-      <orbitControls args={[camera, gl.domElement]} />
       <ambientLight />
       <pointLight />
-
-      {pos.map((ppos, i) => {
-        return (
-          <mesh key={`planet-${i}`} position={ppos}>
-            <sphereBufferGeometry
-              args={[i === 0 ? 0.2 : data.planets[i].r * 800, 30, 30]}
-              attach="geometry"
-            />
-            <meshStandardMaterial
-              color={data.planets[i].color}
-              attach="material"
-            />
-          </mesh>
-        );
-      })}
-      {traj.map((points, i) => {        
-        return (
-          <line key={`line-${i}`} >
-            <bufferGeometry attach="geometry" onUpdate={(self) => self.setFromPoints(points.map(arr => new THREE.Vector3(...arr)))} />
-            <lineBasicMaterial
-              color={data.planets[i].color}
-              attach="material"
-            />
-          </line>
-        );
-      })}
+      <orbitControls args={[camera, gl.domElement]} />
     </group>
   );
 }
@@ -142,31 +74,6 @@ function App() {
       </Canvas>
     </div>
   );
-}
-
-function calcA(x) {
-  const unstackedX = tf.unstack(x);
-  const accelerations = Array(numberOfPlanets).fill(tf.tensor1d([0, 0, 0]));
-
-  for (let i = 0; i < numberOfPlanets; i++) {
-    const iX = unstackedX[i];
-    for (let j = i + 1; j < numberOfPlanets; j++) {
-      const jX = unstackedX[j];
-      const vector = tf.sub(jX, iX);
-      const r = tf.norm(vector);
-
-      const force = G.mul(masses[i])
-        .mul(masses[j])
-        .div(tf.pow(r, 3))
-        .mul(vector);
-      accelerations[i] = accelerations[i].add(force);
-      accelerations[j] = accelerations[j].sub(force);
-    }
-
-    accelerations[i] = accelerations[i].div(masses[i]);
-  }
-
-  return tf.stack(accelerations);
 }
 
 export default App;
