@@ -2,7 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom";
 import { Canvas, useThree, extend } from "react-three-fiber";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
-
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader'
 import * as tf from "@tensorflow/tfjs";
 import data from "../res/data.json";
 
@@ -13,11 +13,11 @@ import right from "../res/skybox/realistic/right.png"
 import back from "../res/skybox/realistic/back.png"
 import top from "../res/skybox/realistic/top.png"
 import bottom from "../res/skybox/realistic/bottom.png"
-
+import { useGLTF } from '@react-three/drei'
 import * as THREE from "three"
 
 import { BufferGeometry, CubeTextureLoader, Vector3  } from "three";
-
+import { useLoader } from '@react-three/fiber'
 import "../styles/App.css";
 
 
@@ -34,15 +34,21 @@ const scale = 1;
 const trailMax = 100;
 const debug = false;
 
+function PlanetModel(name) {
+  const gltf = useLoader(GLTFLoader, `./model/${name}.gltf`)
+  return (
+    <React.Suspense fallback={<div>Loading...</div>}>
+      <primitive object={gltf.scene} scale={1}/>
+    </React.Suspense>
+  )
+}
+
 function SolarSystem() {
   const [current, setCurrent ] = React.useState(j2000);
   const totalTicks = React.useRef(0);
   const {camera, gl} = useThree();
-  const [ xyz, setXYZ] = React.useState(undefined)
   const [ currentPositions, setCurrentPositions ] = React.useState(undefined);
   const [ trail, setTrail ] = React.useState([...Array(numberOfPlanets).keys()].map(() => Array(trailMax).fill([0, 0, 0])));
-
-  
 
   const toRadians = React.useCallback((number) => number * degreeToRadianFactor, []);
   const calcEccentricAnomaly = React.useCallback((eccentricity, mean_anomaly) => {
@@ -108,10 +114,6 @@ function SolarSystem() {
     
     const radius = orbit_size * (1 - (eccentricity * (Math.cos(toRadians(eccentric_anomaly))))) * scale;
 
-    const cos_of_orbital_inclination = Math.cos(toRadians(orbital_inclination));
-    const sin_of_many_longitudes = Math.sin(toRadians(true_anomaly + longitude_perihelion - longitude_ascending_node));
-    const cos_of_many_longitudes = Math.cos(toRadians(true_anomaly + longitude_perihelion - longitude_ascending_node));
-
     const xCoord = radius *(Math.cos(toRadians(longitude_ascending_node)) * Math.cos(toRadians(true_anomaly+longitude_perihelion-longitude_ascending_node)) - Math.sin(toRadians(longitude_ascending_node)) * Math.sin(toRadians(true_anomaly+longitude_perihelion-longitude_ascending_node)) * Math.cos(toRadians(orbital_inclination)));
     const yCoord = radius *(Math.sin(toRadians(longitude_ascending_node)) * Math.cos(toRadians(true_anomaly+longitude_perihelion-longitude_ascending_node)) + Math.cos(toRadians(longitude_ascending_node)) * Math.sin(toRadians(true_anomaly+longitude_perihelion-longitude_ascending_node)) * Math.cos(toRadians(orbital_inclination)));
     const zCoord = radius *(Math.sin(toRadians(true_anomaly+longitude_perihelion-longitude_ascending_node))*Math.sin(toRadians(orbital_inclination)));
@@ -162,23 +164,24 @@ function SolarSystem() {
     requestAnimationFrame(() => animate());
   }, [current]);
 
+  
   return (
     <group>
       <ambientLight />
       <pointLight />
       <orbitControls args={[camera, gl.domElement]} />
-      <mesh>
-        <sphereGeometry attach="geometry" args={[0.1]} />
-            <meshStandardMaterial
-              attach="material"
-              color="yellow"
-            />
-      </mesh>
+      
+      {PlanetModel("sun")}
+      {PlanetModel("mercury")}
+      {PlanetModel("venus")}
+      {PlanetModel("earth")} 
+      {PlanetModel("mars")}
+
       {
         currentPositions !== undefined ? 
         currentPositions.map((position, i) => 
           <mesh visible position={new THREE.Vector3(...position)} key={i}>
-            <sphereGeometry attach="geometry" args={[table2a.planets[i].diameter / 25 ]} />
+            <sphereGeometry attach="geometry" args={[table2a.planets[i].diameter / 25 ]}  />
             <meshStandardMaterial
               attach="material"
               color="white"
@@ -216,10 +219,12 @@ function App() {
 
   return (
     <div className="App">
-      <Canvas camera={{position: [0, 0, 20]}}>
-        <SolarSystem />
-        <SkyBox/>
-      </Canvas>
+      <React.Suspense fallback={<div>Loading...</div>}>
+        <Canvas camera={{position: [0, 0, 20]}}>
+            <SolarSystem />
+            <SkyBox/>
+        </Canvas>
+      </React.Suspense>
     </div>
   );
 }

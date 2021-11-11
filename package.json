@@ -3,6 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "dependencies": {
+    "@react-three/drei": "^7.20.5",
+    "@react-three/fiber": "^7.0.19",
     "@tensorflow/tfjs": "^3.11.0",
     "@testing-library/jest-dom": "^5.15.0",
     "@testing-library/react": "^11.2.7",
