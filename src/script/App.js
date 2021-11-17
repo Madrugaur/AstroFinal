@@ -1,10 +1,8 @@
 import React from "react";
-import ReactDOM from "react-dom";
 import { Canvas, useThree, extend } from "react-three-fiber";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader'
-import * as tf from "@tensorflow/tfjs";
 import data from "../res/data.json";
+import Loader from 'react-loader-spinner';
 
 
 import front from "../res/skybox/realistic/front.png"
@@ -13,194 +11,16 @@ import right from "../res/skybox/realistic/right.png"
 import back from "../res/skybox/realistic/back.png"
 import top from "../res/skybox/realistic/top.png"
 import bottom from "../res/skybox/realistic/bottom.png"
-import { useGLTF } from '@react-three/drei'
 import * as THREE from "three"
+import { TextGeometry } from 'three/examples/jsm/geometries/TextGeometry'
 
-import { BufferGeometry, CubeTextureLoader, Vector3  } from "three";
-import { useLoader } from '@react-three/fiber'
+import { CubeTextureLoader, Vector3  } from "three";
 import "../styles/App.css";
 
+import SolarSystem from "./SolarSystem"
+extend({ OrbitControls, TextGeometry})
 
-extend({ OrbitControls})
-
-const table2a = data.table2a;
-const table2b = data.table2b;
-
-const numberOfPlanets = table2a.planets.length;
-
-const j2000 = 2451545.0;
-const degreeToRadianFactor =  Math.PI / 180.0;
-const scale = 1;
-const trailMax = 100;
-const debug = false;
-
-function PlanetModel(name) {
-  const gltf = useLoader(GLTFLoader, `./model/${name}.gltf`)
-  return (
-    <React.Suspense fallback={<div>Loading...</div>}>
-      <primitive object={gltf.scene} scale={1}/>
-    </React.Suspense>
-  )
-}
-
-function SolarSystem() {
-  const [current, setCurrent ] = React.useState(j2000);
-  const totalTicks = React.useRef(0);
-  const {camera, gl} = useThree();
-  const [ currentPositions, setCurrentPositions ] = React.useState(undefined);
-  const [ trail, setTrail ] = React.useState([...Array(numberOfPlanets).keys()].map(() => Array(trailMax).fill([0, 0, 0])));
-
-  const toRadians = React.useCallback((number) => number * degreeToRadianFactor, []);
-  const calcEccentricAnomaly = React.useCallback((eccentricity, mean_anomaly) => {
-    const delta = Math.pow(10, -6);
-    var deltaEccentricity, deltaMeanAnomoly;
-    const maxIterations = 30;
-    
-    mean_anomaly = mean_anomaly / 360.0;
-    mean_anomaly = 2.0 * Math.PI * (mean_anomaly - Math.floor(mean_anomaly))
-
-    if (eccentricity < 0.8) deltaEccentricity = mean_anomaly; 
-    else deltaEccentricity = Math.PI;
-
-    deltaMeanAnomoly = deltaEccentricity - eccentricity * Math.sin(mean_anomaly) - mean_anomaly;
-
-    for (var i = 0; (i < maxIterations) && (Math.abs(deltaMeanAnomoly) > delta); i++) {
-      deltaEccentricity = deltaEccentricity - deltaMeanAnomoly / (1.0 - eccentricity * Math.cos(deltaEccentricity));
-      deltaMeanAnomoly = deltaEccentricity - eccentricity * Math.sin(deltaEccentricity) - mean_anomaly;
-    }
-
-    deltaEccentricity = deltaEccentricity / (Math.PI / 180);
-    deltaEccentricity = Math.round(deltaEccentricity * Math.pow(10, 6)) / Math.pow(10, 6);
-    return deltaEccentricity;
-  }, []);
-
-  const computeSingle = React.useCallback((planetId) => {
-    const planet = table2a.planets[planetId];
-    // Number of centuries past J2000 epoch
-    const T = (current - j2000) / 36525;
-
-    
-    const orbit_size = planet.au + (planet.aucy * T); 
-
-    const eccentricity = planet.rad + (planet.radcy * T);
-
-    var orbital_inclination = planet.Ideg + (planet.Idegcy * T);
-    orbital_inclination = orbital_inclination % 360;
-
-    var longitude_ascending_node = planet.nodedeg + (planet.nodedegcy * T);
-    longitude_ascending_node = longitude_ascending_node % 360;
-
-    var longitude_perihelion = planet.perideg + (planet.peridegcy * T);
-    longitude_perihelion = longitude_perihelion % 360;
-    if (longitude_perihelion < 0) longitude_perihelion = 360 + longitude_perihelion;
-
-    var mean_longitude = planet.Ldeg + planet.Ldegcy * T;
-    mean_longitude = mean_longitude % 360
-    if (mean_longitude < 0) mean_longitude = 360 + mean_longitude
-
-    var mean_anomaly = mean_longitude - longitude_perihelion;
-    if (mean_anomaly < 0) mean_anomaly = 360 + mean_anomaly;
-    
-    const eccentric_anomaly = calcEccentricAnomaly(eccentricity, mean_anomaly);
-    const argument_true_anomaly = Math.sqrt((1 + eccentricity) / (1 - eccentricity)) * Math.tan(toRadians(eccentric_anomaly) / 2);
-    
-    var true_anomaly = 0;
-    if (argument_true_anomaly < 0) {
-      true_anomaly = 2 * (Math.atan(argument_true_anomaly) / degreeToRadianFactor + 180);
-    } else {
-      true_anomaly = 2 * (Math.atan(argument_true_anomaly) / degreeToRadianFactor);
-    }
-
-    
-    const radius = orbit_size * (1 - (eccentricity * (Math.cos(toRadians(eccentric_anomaly))))) * scale;
-
-    const xCoord = radius *(Math.cos(toRadians(longitude_ascending_node)) * Math.cos(toRadians(true_anomaly+longitude_perihelion-longitude_ascending_node)) - Math.sin(toRadians(longitude_ascending_node)) * Math.sin(toRadians(true_anomaly+longitude_perihelion-longitude_ascending_node)) * Math.cos(toRadians(orbital_inclination)));
-    const yCoord = radius *(Math.sin(toRadians(longitude_ascending_node)) * Math.cos(toRadians(true_anomaly+longitude_perihelion-longitude_ascending_node)) + Math.cos(toRadians(longitude_ascending_node)) * Math.sin(toRadians(true_anomaly+longitude_perihelion-longitude_ascending_node)) * Math.cos(toRadians(orbital_inclination)));
-    const zCoord = radius *(Math.sin(toRadians(true_anomaly+longitude_perihelion-longitude_ascending_node))*Math.sin(toRadians(orbital_inclination)));
-
-    if (debug) {
-      console.log(
-        `
-        Planet ${planetId + 1}
-  
-        a: ${orbit_size} 
-        e: ${eccentricity}
-        i: ${orbital_inclination}
-        W: ${longitude_ascending_node}
-        w: ${longitude_perihelion}
-        L: ${mean_longitude}
-  
-        Mean Anomaly: ${mean_anomaly}
-        Ecc. Anomaly: ${eccentric_anomaly}
-        True Anomaly: ${true_anomaly}
-        Radius Vector: ${radius}
-  
-        X: ${xCoord}
-        Y: ${yCoord}
-        Z: ${zCoord}
-        `
-      );
-    }
-    
-    
-    return [xCoord, yCoord, zCoord];
-  }, [current, toRadians])
-
-  const animate = React.useCallback(() => {
-    setCurrent(current + 1)
-    totalTicks.current += 1;
-
-    const new_positions = [...Array(numberOfPlanets).keys()].map(planetId => computeSingle(planetId));
-    setCurrentPositions(new_positions);
-    setTrail(trail => trail.map((points, i) => points.slice(-trailMax + 1).concat([new_positions[i]])));
-    
-    // const new_xyz = computeSingle(3);
-    //setXYZ(new_xyz);
-    //setTrail(trail => [...trail, new_xyz])
-    // console.log(`Date: ${current}\nX:${new_xyz[0]}\nY:${new_xyz[1]}\nZ:${new_xyz[2]}`)
-  }, [current, setCurrentPositions, totalTicks, trail]);
-
-  React.useEffect(() => {
-    requestAnimationFrame(() => animate());
-  }, [current]);
-
-  
-  return (
-    <group>
-      <ambientLight />
-      <pointLight />
-      <orbitControls args={[camera, gl.domElement]} />
-      
-      {PlanetModel("sun")}
-      {PlanetModel("mercury")}
-      {PlanetModel("venus")}
-      {PlanetModel("earth")} 
-      {PlanetModel("mars")}
-
-      {
-        currentPositions !== undefined ? 
-        currentPositions.map((position, i) => 
-          <mesh visible position={new THREE.Vector3(...position)} key={i}>
-            <sphereGeometry attach="geometry" args={[table2a.planets[i].diameter / 25 ]}  />
-            <meshStandardMaterial
-              attach="material"
-              color="white"
-            />
-          </mesh>)
-        :
-        <></>
-      }
-
-      {
-        trail.map((points, i) => 
-          <line geometry={new THREE.BufferGeometry().setFromPoints(points.map(point => new THREE.Vector3(...point)))}>
-            <lineBasicMaterial attach="material" />
-          </line>
-        )
-      }
-    </group>
-  );
-}
+const planets = data.planets;
 
 function SkyBox () {
   const { scene } = useThree();
@@ -212,18 +32,109 @@ function SkyBox () {
   return null;
 }
 
-function App() {
-  document.getElementById("root").setAttribute("style", "height:" + window.innerHeight +"px")
-  window.addEventListener('resize', () => document.getElementById("root").setAttribute("style", "height:" + window.innerHeight +"px"))
- 
+
+
+function  App() {
+  const [planetInfo, setPlanetInfo] = React.useState(undefined);
+  const defaultPosition = React.useMemo(() => [0, 0, 0], []);
+  const [focused, setFocused] = React.useState({planetId: -1})
+  const [ showPlanetNames, setShowPlanetNames ] = React.useState(true);
+  const [ showPlanetStats, setShowPlanetStats] = React.useState(false);
+  const [ showPlanetDebug, setShowPlanetDebug] = React.useState(false);
+  const cameraRef = React.useRef(() => ({positon: [0, 0, 0]}));
+  const [timeout, setTimeout] = React.useState(1);
+  const exitFocused = React.useCallback((e) => {
+    if (e.code !== "Escape") return;
+    setFocused({planetId: -2})
+    setShowPlanetNames(true);
+  }, [cameraRef.current])
+
+  React.useEffect(() => {
+    document.getElementById("root").setAttribute("style", "height:" + window.innerHeight +"px")
+    window.addEventListener('resize', () => document.getElementById("root").setAttribute("style", "height:" + window.innerHeight +"px"))
+    window.addEventListener('keydown', exitFocused)
+  }, [])
+
+  
+  const fallbackComponent = React.useMemo(() => 
+    <div className="center">
+      <Loader type="TailSpin" color="#00BFFF" height={100} width={100}/>
+      <p className="loaderText">Loading...</p>
+    </div>
+  , []);
+
+  const planetInfoComponent = React.useMemo(() => {
+    if (focused.planetId < 0) return null;
+    if (planetInfo === undefined) return null;
+    const planet = planets[focused.planetId];
+    const infoChunk = planetInfo[focused.planetId];
+    return (
+      <div className="planetInfoComponent">
+        <div className="planetName">{`${planet.name}`}</div>
+        <div className="planetFact">Mass:    {infoChunk.mass.massValue} x 10<sup>{infoChunk.mass.massExponent}</sup> kg</div>
+        <div className="planetFact">Gravity: {infoChunk.gravity} m/s<sup>2</sup></div>
+        <div className="planetFact">Moons: {infoChunk.moons ? infoChunk.moons.length : "None"}</div>
+        <div className="planetFact">{planet.blurb}</div>
+        <div className="planetFact"><a href={`${planet.wikilink}`} target="_blank">Learn More</a></div>
+
+      </div>
+    );
+  }, [focused, planets, planetInfo])
+  
+  const dropdownComponent = React.useMemo(() =>
+    <div className="dropdownContainer">
+      <div className="dropdown">
+        <button className="dropbtn">Spotlight Planet</button>
+        <div className="dropdown-content">
+          { planets.map((planet, i) => <a key={`spotlight-btn-${i}`}onClick={() => spotlightPlanet(i)} >{planet.name}</a>)}
+        </div>
+      </div>
+    </div>
+  , []);
+
+  const showPlanetNamesComponent = React.useMemo(() => 
+    <div className="showNamesCheckBox">
+      <input type="checkbox" checked={showPlanetNames} id="showPlanetNames" name="showPlanetNames" onChange={() => setShowPlanetNames(!showPlanetNames)}/>
+      <label htmlFor="showPlanetNames"> Show Planet Names</label>
+    </div>
+  , [showPlanetNames, setShowPlanetNames]);
+
+  const speedSliderComponent = React.useMemo(() => 
+   <div class="slidecontainer">
+      <input type="range" min={1} max={240000} value={timeout} className="slider" onChange={(e) => setTimeout(Number(e.target.value))} />
+    </div>
+  , [timeout]);
+  const spotlightPlanet = React.useCallback((id) => {
+    setFocused({planetId: id});
+    setShowPlanetNames(false);
+  }, []);
+
+  React.useEffect(() => {
+    Promise.all(planets.map(planet =>
+      fetch(`https://api.le-systeme-solaire.net/rest/bodies/${planet.name}`).then(resp => resp.json())
+    )).then(texts => {
+      setPlanetInfo(texts)
+    })
+  }, [])
 
   return (
     <div className="App">
-      <React.Suspense fallback={<div>Loading...</div>}>
-        <Canvas camera={{position: [0, 0, 20]}}>
-            <SolarSystem />
-            <SkyBox/>
+      <React.Suspense fallback={fallbackComponent}>
+        <Canvas camera={cameraRef}>
+          {/* <primitive object={new THREE.AxesHelper(10)} /> */}
+          <SolarSystem 
+            focused={focused} 
+            showPlanetNames={showPlanetNames}
+            setFocused={setFocused}
+            setShowPlanetNames={setShowPlanetNames}
+            timeout={timeout}
+          />
+          <SkyBox/>
         </Canvas>
+        {dropdownComponent}
+        {/* {showPlanetNamesComponent} */}
+        {planetInfoComponent}
+        
       </React.Suspense>
     </div>
   );
